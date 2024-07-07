@@ -141,6 +141,50 @@ def clip_to_previous_24_hours(filtered_data):
     
     return clipped_data
 
+# Function to clip data to the most recent 7am to 7am period
+def clip_to_7am_period(filtered_data):
+    if not filtered_data:
+        return []
+    
+    # Find the most recent timestamp
+    most_recent_time = filtered_data[-1][0]
+    
+    # Find the most recent 7am before the most recent timestamp
+    most_recent_7am = most_recent_time.replace(hour=7, minute=0, second=0, microsecond=0)
+    if most_recent_time.hour < 7:
+        most_recent_7am -= datetime.timedelta(days=1)
+    
+    # Calculate the cutoff times for the last 7am to 7am period
+    cutoff_time_start = most_recent_7am - datetime.timedelta(days=1)
+    cutoff_time_end = most_recent_7am
+    
+    # Filter data to include only entries within the last 7am to 7am period
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if cutoff_time_start <= ts < cutoff_time_end]
+    
+    return clipped_data, cutoff_time_start, cutoff_time_end
+
+# Function to clip data to the 7am to 7am period before the most recent one
+def clip_to_previous_7am_period(filtered_data):
+    if not filtered_data:
+        return []
+    
+    # Find the most recent timestamp
+    most_recent_time = filtered_data[-1][0]
+    
+    # Find the most recent 7am before the most recent timestamp
+    most_recent_7am = most_recent_time.replace(hour=7, minute=0, second=0, microsecond=0)
+    if most_recent_time.hour < 7:
+        most_recent_7am -= datetime.timedelta(days=1)
+    
+    # Calculate the cutoff times for the previous 7am to 7am period
+    cutoff_time_start = most_recent_7am - datetime.timedelta(days=2)
+    cutoff_time_end = most_recent_7am - datetime.timedelta(days=1)
+    
+    # Filter data to include only entries within the previous 7am to 7am period
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if cutoff_time_start <= ts < cutoff_time_end]
+    
+    return clipped_data, cutoff_time_start, cutoff_time_end
+
 # Main function for Streamlit app
 def main():
     selected2 = option_menu(None, ["Settings", "Home"], 
@@ -348,42 +392,101 @@ def main():
         
         #Metrix Setting 
         st.title("Last 24 Hours")
-        # Initialize variables to store total counts
-        total_counts_24 = {}
-        total_counts_24_prev = {}
+        metric_timeframe = st.selectbox("Select Metric Time Frame", ['Last twenty four', '7am to 7am'])
         
-        for i, (file_name, file_content) in enumerate(files.items(), start=1):
-            if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                filtered_data = read_and_filter_data(file_content)
-                if filtered_data:
-                    # Clip data to the last 24 hours
-                    filtered_data_24 = clip_to_last_24_hours(filtered_data)
-                    if filtered_data_24:
-                        first_count_24 = filtered_data_24[0][1]
-                        timestamps_24 = [entry[0] for entry in filtered_data_24]
-                        counts_24 = [entry[1] - first_count_24 for entry in filtered_data_24]
-                        sensor_names_24 = [entry[2] for entry in filtered_data_24]
-                        total_counts_24[f'total_counts_24_hall_{i}'] = max(counts_24)
+        if metric_timeframe == 'Last twenty four':
+            # Initialize variables to store total counts
+            total_counts_24 = {}
+            total_counts_24_prev = {}
+            sensor_names_24_out = {}
+            
+            for i, (file_name, file_content) in enumerate(files.items(), start=1):
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 24 hours
+                        filtered_data_24 = clip_to_last_24_hours(filtered_data)
+                        if filtered_data_24:
+                            first_count_24 = filtered_data_24[0][1]
+                            timestamps_24 = [entry[0] for entry in filtered_data_24]
+                            counts_24 = [entry[1] - first_count_24 for entry in filtered_data_24]
+                            sensor_names_24 = [entry[2] for entry in filtered_data_24]
+                            total_counts_24[f'total_counts_24_hall_{i}'] = max(counts_24)
+                            
+                            start_time_24 = timestamps[0].strftime('%Y-%m-%d %H:%M:%S')
+                            end_time_24 = timestamps[-1].strftime('%Y-%m-%d %H:%M:%S')
+                            sensor_names_24_out[i]=sensor_names_24[-1]
+                        # Clip data to the previous 24 hours
+                        filtered_data_prev_24 = clip_to_previous_24_hours(filtered_data)
+                        if filtered_data_prev_24:
+                            first_count_prev_24 = filtered_data_prev_24[0][1]
+                            counts_prev_24 = [entry[1] - first_count_prev_24 for entry in filtered_data_prev_24]
+                            total_counts_24_prev[f'total_counts_24_hall_{i}'] = max(counts_prev_24)
+                        else:
+                            total_counts_24_prev[f'total_counts_24_hall_{i}'] = 0
+            
+            st.write(sensor_names_24_out)
+            # Display total counts and deltas in a 4-column by 2-row grid
+            cols = st.columns(4)
+            for i, (key, value) in enumerate(total_counts_24.items()):
+                col = cols[i % 4]
+                delta = value - total_counts_24_prev[key]
+                sensor_name = sensor_names_24_out[i+1]
+                col.metric(f"Total Counts {sensor_name}", value, delta)
+                
+            
+            st.markdown(f"**Date Range for Last 24 Hours**: {start_time_24} to {end_time_24}")
+            
+        elif metric_timeframe == '7am to 7am':
+            total_counts_7am = {}
+            total_counts_7am_prev = {}
+            date_ranges_7am = {}
+            date_ranges_7am_prev = {}
+            sensor_names_7am_out = {}
+            
+            # Parse data from each .txt file and add to Plotly figure
+            for i, (file_name, file_content) in enumerate(files.items(), start=1):
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 7am to 7am period
+                        filtered_data_7am, cutoff_time_start_7am, cutoff_time_end_7am = clip_to_7am_period(filtered_data)
+                        if filtered_data_7am:
+                            first_count_7am = filtered_data_7am[0][1]
+                            timestamps_7am = [entry[0] for entry in filtered_data_7am]
+                            counts_7am = [entry[1] - first_count_7am for entry in filtered_data_7am]
+                            sensor_names_7am = [entry[2] for entry in filtered_data_7am]
+                            total_counts_7am[f'total_counts_7am_hall_{i}'] = max(counts_7am)
+                            date_ranges_7am[f'total_counts_7am_hall_{i}'] = f"{cutoff_time_start_7am.strftime('%Y-%m-%d %H:%M:%S')} to {cutoff_time_end_7am.strftime('%Y-%m-%d %H:%M:%S')}"
+                            
+                            sensor_names_7am_out[i]=sensor_names_7am[-1]
                         
-                        # Add trace to Plotly figure with sensor name as label
-                        fig.add_trace(go.Scatter(x=timestamps_24, y=counts_24, mode='lines', name=sensor_names_24[0]))
-                    
-                    # Clip data to the previous 24 hours
-                    filtered_data_prev_24 = clip_to_previous_24_hours(filtered_data)
-                    if filtered_data_prev_24:
-                        first_count_prev_24 = filtered_data_prev_24[0][1]
-                        counts_prev_24 = [entry[1] - first_count_prev_24 for entry in filtered_data_prev_24]
-                        total_counts_24_prev[f'total_counts_24_hall_{i}'] = max(counts_prev_24)
-                    else:
-                        total_counts_24_prev[f'total_counts_24_hall_{i}'] = 0
-        
-        # Display total counts and deltas in a 4-column by 2-row grid
-        cols = st.columns(4)
-        for i, (key, value) in enumerate(total_counts_24.items()):
-            col = cols[i % 4]
-            delta = value - total_counts_24_prev[key]
-            col.metric(f"Total Counts {key.split('_')[-1]}", value, delta)
-    
+                        # Clip data to the previous 7am to 7am period
+                        filtered_data_prev_7am, cutoff_time_start_prev_7am, cutoff_time_end_prev_7am = clip_to_previous_7am_period(filtered_data)
+                        if filtered_data_prev_7am:
+                            first_count_prev_7am = filtered_data_prev_7am[0][1]
+                            counts_prev_7am = [entry[1] - first_count_prev_7am for entry in filtered_data_prev_7am]
+                            total_counts_7am_prev[f'total_counts_7am_hall_{i}'] = max(counts_prev_7am)
+                            date_ranges_7am_prev[f'total_counts_7am_hall_{i}'] = f"{cutoff_time_start_prev_7am.strftime('%Y-%m-%d %H:%M:%S')} to {cutoff_time_end_prev_7am.strftime('%Y-%m-%d %H:%M:%S')}"
+                        else:
+                            total_counts_7am_prev[f'total_counts_7am_hall_{i}'] = 0
+
+            
+            
+            st.title("7am to 7am Periods")
+            cols = st.columns(4)
+            for i, (key, value) in enumerate(total_counts_7am.items()):
+                col = cols[i % 4]
+                delta = value - total_counts_7am_prev[key]
+                sensor_name = sensor_names_7am_out[i+1]
+                col.metric(f"Total Counts {sensor_name}", value, delta)
+                
+            # Display the first date range below the metrics
+            first_key = next(iter(date_ranges_7am))
+            first_date_range = date_ranges_7am[first_key]
+            st.markdown(f"**Date Range for Displayed Data**: {first_date_range}")
+
+            
 
 if __name__ == "__main__":
     main()
