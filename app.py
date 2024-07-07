@@ -6,6 +6,16 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from streamlit_option_menu import option_menu
 
+#wide
+st.set_page_config(layout="wide")
+
+#hide top color bar
+hide_decoration_bar_style = '''
+    <style>
+        header {visibility: hidden;}
+    </style>
+'''
+st.markdown(hide_decoration_bar_style, unsafe_allow_html=True)
 
 # Function to connect to GitHub and retrieve files
 def get_github_files(repo_name, access_key, file_names):
