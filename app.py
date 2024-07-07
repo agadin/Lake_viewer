@@ -42,10 +42,9 @@ def update_github_file(repo_name, access_key, file_name, new_content):
     repo = g.get_repo(repo_name)
     contents = repo.get_contents(file_name)
     repo.update_file(contents.path, "Update preferences.json", new_content, contents.sha)
-import streamlit as st
-import pandas as pd
-import datetime
+
 import plotly.graph_objects as go
+import datetime
 
 # Function to parse date and time from your data format
 def parse_date_time(line):
@@ -63,11 +62,9 @@ def parse_date_time(line):
 
 # Function to read and filter data
 def read_and_filter_data(file_content):
-    try:
-        lines = file_content.splitlines()
-    except FileNotFoundError:
-        print(f"File '{file_path}' not found.")
-        return []
+
+    lines = file_content.splitlines()
+
 
     data = []
     for line in lines:
@@ -185,13 +182,80 @@ def clip_to_previous_7am_period(filtered_data):
     
     return clipped_data, cutoff_time_start, cutoff_time_end
 
+# Function to calculate counts per 7am to 7am period
+def calculate_counts_per_7am_period(filtered_data):
+    if not filtered_data:
+        return []
+    
+    counts_per_period = {}
+    current_date = filtered_data[0][0].date()
+    start_time = datetime.time(7, 0, 0)
+    end_time = datetime.time(7, 0, 0)
+
+    current_period_start = datetime.datetime.combine(current_date, start_time)
+    current_period_end = datetime.datetime.combine(current_date, end_time)
+
+    total_count = 0
+    for timestamp, count, sensor_name in filtered_data:
+        if timestamp >= current_period_start and timestamp < current_period_end:
+            total_count = count
+        elif timestamp >= current_period_end:
+            counts_per_period[current_period_start.strftime('%Y-%m-%d %H:%M:%S')] = total_count
+            # Move to the next 7am to 7am period
+            current_date = timestamp.date()
+            current_period_start = datetime.datetime.combine(current_date, start_time)
+            current_period_end = datetime.datetime.combine(current_date + datetime.timedelta(days=1), end_time)
+            total_count = count
+    
+    # Add the last period
+    counts_per_period[current_period_start.strftime('%Y-%m-%d %H:%M:%S')] = total_count
+    
+    return counts_per_period
+
+import numpy as np
+
+def calculate_7am_to_7am_ranges(filtered_data):
+    if not filtered_data:
+        return pd.DataFrame()
+    
+    # Create a DataFrame from filtered_data
+    df = pd.DataFrame(filtered_data, columns=['timestamp', 'count', 'sensor_name'])
+    
+    # Extract date and time components
+    df['date'] = df['timestamp'].dt.date
+    df['hour'] = df['timestamp'].dt.hour
+    
+    # Group by date and calculate start/end timestamps for each 7am to 7am period
+    df['7am_period'] = np.where(df['hour'] >= 7, df['date'], df['date'] - pd.Timedelta(days=1))
+    df['7am_period_start'] = pd.to_datetime(df['7am_period']) + pd.Timedelta(hours=7)
+    df['7am_period_end'] = df['7am_period_start'] + pd.Timedelta(hours=24)
+    
+    # Group by 7am periods and calculate range of counts
+    ranges = df.groupby(['7am_period', 'sensor_name']).agg({
+        'count': lambda x: x.max() - x.min()
+    }).reset_index()
+    
+    # Pivot table to have sensors as columns and 7am periods as rows
+    pivot_table = pd.pivot_table(ranges, values='count', index='7am_period', columns='sensor_name')
+    
+    return pivot_table
+
+
+
+
+
+# Function to record timestamp in local time
+def record_timestamp():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 # Main function for Streamlit app
 def main():
     selected2 = option_menu(None, ["Settings", "Home"], 
                            icons=['gear', 'house'], 
                            menu_icon="cast", default_index=0, orientation="horizontal")
    
-
+    
     if selected2 == "Settings":
         st.header("Settings")
         
@@ -211,6 +275,13 @@ def main():
                 file_names = [f"hall_effect_sensor_{i}.txt" for i in range(1, 9)]
                 file_names.append("preferences.json")  # Add preferences.json to file list
                 files.update(get_github_files(github_repo, github_access_key, file_names))
+                st.session_state.github_repo = github_repo
+                st.session_state.github_access_key = github_access_key
+                st.session_state.file_names= file_names
+                
+                # Note refresh time 
+                timestamp_last_refresh = record_timestamp()
+                st.session_state.timestamp_last_refresh = timestamp_last_refresh
             if uploaded_files:
                 for file in uploaded_files:
                     file_name = file.name
@@ -225,7 +296,6 @@ def main():
                 # Store files in session state to be used in Main page
                 st.session_state.files = files
         
-        # Counter settings
         # Counter settings
         st.subheader("Counter Settings")
         is_from_device = False
@@ -306,7 +376,6 @@ def main():
             st.write("Settings restored.")
     
     elif selected2 == "Home":
-        st.title("Sensor Data Dashboard - Main Page")
         
         # Ensure files have been retrieved or uploaded
         if "files" not in st.session_state or not st.session_state.files:
@@ -315,86 +384,14 @@ def main():
         
         files = st.session_state.files
         
-        # Dropdown for selecting time frame
-        setting = st.selectbox("Select Time Frame", ['all', 'twenty four', 'one hour'])
         
-        # Create figure for Plotly chart
-        fig = go.Figure()
+        # Dropdown for selecting time frame        
         
-        # Parse data based on selected time frame
-        if setting == 'all':
-            for file_name, file_content in files.items():
-                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
-                    
-                    if filtered_data:
-                        timestamps = [entry[0] for entry in filtered_data]
-                        counts = [entry[1] for entry in filtered_data]
-                        sensor_names = [entry[2] for entry in filtered_data]
-                        
-                        # Add trace to Plotly figure with sensor name as label
-                        fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
-            
-            # Customize layout
-            fig.update_layout(title='Sensor Data over Time',
-                              xaxis_title='Time',
-                              yaxis_title='Count',
-                              hovermode='x unified')
         
-        elif setting == 'twenty four':
-            # Parse data from each .txt file and add to Plotly figure
-            for file_name, file_content in files.items():
-                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
-                    if filtered_data:
-                        # Clip data to the last 24 hours
-                        filtered_data = clip_to_last_24_hours(filtered_data)
-                        first_count = filtered_data[0][1]
-                        if filtered_data:
-                            timestamps = [entry[0] for entry in filtered_data]
-                            counts = [entry[1]-first_count for entry in filtered_data]
-                            sensor_names = [entry[2] for entry in filtered_data]
-                            
-                            # Add trace to Plotly figure with sensor name as label
-                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
-            
-            # Customize layout
-            fig.update_layout(title='Sensor Data over Time (Last 24 Hours)',
-                              xaxis_title='Time',
-                              yaxis_title='Count',
-                              hovermode='x unified')
+        #Second section Metric Setting 
+        metric_timeframe = st.selectbox("Select Metric Time Frame", ['Last 24 Hours Available', 'Last 7am to 7am Period'], help='Indicate the tim range for metrics. Note the secondary numbers are change from previous time point.')
         
-        elif setting == 'one hour':
-            # Parse data from each .txt file and add to Plotly figure
-            for file_name, file_content in files.items():
-                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
-                    if filtered_data:
-                        # Clip data to the last 1 hour
-                        filtered_data = clip_to_last_1_hour(filtered_data)
-                        first_count = filtered_data[0][1]
-                        if filtered_data:
-                            timestamps = [entry[0] for entry in filtered_data]
-                            counts = [entry[1]-first_count for entry in filtered_data]
-                            sensor_names = [entry[2] for entry in filtered_data]
-                            
-                            # Add trace to Plotly figure with sensor name as label
-                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
-            
-            # Customize layout
-            fig.update_layout(title='Sensor Data over Time (Last 1 Hour)',
-                              xaxis_title='Time',
-                              yaxis_title='Count',
-                              hovermode='x unified')
-        
-        # Render Plotly chart
-        st.plotly_chart(fig)
-        
-        #Metrix Setting 
-        st.title("Last 24 Hours")
-        metric_timeframe = st.selectbox("Select Metric Time Frame", ['Last twenty four', '7am to 7am'])
-        
-        if metric_timeframe == 'Last twenty four':
+        if metric_timeframe == 'Last 24 Hours Available':
             # Initialize variables to store total counts
             total_counts_24 = {}
             total_counts_24_prev = {}
@@ -413,8 +410,8 @@ def main():
                             sensor_names_24 = [entry[2] for entry in filtered_data_24]
                             total_counts_24[f'total_counts_24_hall_{i}'] = max(counts_24)
                             
-                            start_time_24 = timestamps[0].strftime('%Y-%m-%d %H:%M:%S')
-                            end_time_24 = timestamps[-1].strftime('%Y-%m-%d %H:%M:%S')
+                            start_time_24 = timestamps_24[0].strftime('%Y-%m-%d %H:%M:%S')
+                            end_time_24 = timestamps_24[-1].strftime('%Y-%m-%d %H:%M:%S')
                             sensor_names_24_out[i]=sensor_names_24[-1]
                         # Clip data to the previous 24 hours
                         filtered_data_prev_24 = clip_to_previous_24_hours(filtered_data)
@@ -425,7 +422,6 @@ def main():
                         else:
                             total_counts_24_prev[f'total_counts_24_hall_{i}'] = 0
             
-            st.write(sensor_names_24_out)
             # Display total counts and deltas in a 4-column by 2-row grid
             cols = st.columns(4)
             for i, (key, value) in enumerate(total_counts_24.items()):
@@ -435,9 +431,9 @@ def main():
                 col.metric(f"Total Counts {sensor_name}", value, delta)
                 
             
-            st.markdown(f"**Date Range for Last 24 Hours**: {start_time_24} to {end_time_24}")
+            st.markdown(f"**Date Range for Last 24 Hours**: {start_time_24} to {end_time_24}", help='Time range for data values shown above. Note: Date range may appear to be greater than 24 hours due to how the date increases at midnight, this is normal.')
             
-        elif metric_timeframe == '7am to 7am':
+        elif metric_timeframe == 'Last 7am to 7am Period':
             total_counts_7am = {}
             total_counts_7am_prev = {}
             date_ranges_7am = {}
@@ -473,7 +469,6 @@ def main():
 
             
             
-            st.title("7am to 7am Periods")
             cols = st.columns(4)
             for i, (key, value) in enumerate(total_counts_7am.items()):
                 col = cols[i % 4]
@@ -484,9 +479,132 @@ def main():
             # Display the first date range below the metrics
             first_key = next(iter(date_ranges_7am))
             first_date_range = date_ranges_7am[first_key]
-            st.markdown(f"**Date Range for Displayed Data**: {first_date_range}")
-
+            st.markdown(f"**Date Range for Displayed Data**: {first_date_range}", help='Time range for data values shown above. Note: Date range may appear to be greater than 24 hours due to how the date increases at midnight, this is normal.')
             
+            
+            
+        #Second section
+        # Create figure for Plotly chart
+        setting = st.selectbox("Select Time Frame", ['All', 'Last 24 Hours Available', 'Last Hour Avaible'], help='Select the time frame to be displayed in the figure')
+
+        fig = go.Figure()
+        
+        # Parse data based on selected time frame
+        if setting == 'All':
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    
+                    if filtered_data:
+                        timestamps = [entry[0] for entry in filtered_data]
+                        counts = [entry[1] for entry in filtered_data]
+                        sensor_names = [entry[2] for entry in filtered_data]
+                        
+                        # Add trace to Plotly figure with sensor name as label
+                        fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
+        
+        elif setting == 'Last 24 Hours Available':
+            # Parse data from each .txt file and add to Plotly figure
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 24 hours
+                        filtered_data = clip_to_last_24_hours(filtered_data)
+                        first_count = filtered_data[0][1]
+                        if filtered_data:
+                            timestamps = [entry[0] for entry in filtered_data]
+                            counts = [entry[1]-first_count for entry in filtered_data]
+                            sensor_names = [entry[2] for entry in filtered_data]
+                            
+                            # Add trace to Plotly figure with sensor name as label
+                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time (Last 24 Hours)',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
+        
+        elif setting == 'Last Hour Avaible':
+            # Parse data from each .txt file and add to Plotly figure
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 1 hour
+                        filtered_data = clip_to_last_1_hour(filtered_data)
+                        first_count = filtered_data[0][1]
+                        if filtered_data:
+                            timestamps = [entry[0] for entry in filtered_data]
+                            counts = [entry[1]-first_count for entry in filtered_data]
+                            sensor_names = [entry[2] for entry in filtered_data]
+                            
+                            # Add trace to Plotly figure with sensor name as label
+                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time (Last 1 Hour)',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
+        
+        # Render Plotly chart
+        st.plotly_chart(fig)
+        
+        
+       #third section
+        # Initialize DataFrame for display
+        ranges_df = pd.DataFrame()
+        
+        # Process each file for 7am to 7am periods
+        for file_name, file_content in files.items():
+            if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                filtered_data = read_and_filter_data(file_content)
+                if filtered_data:
+                    ranges_data = calculate_7am_to_7am_ranges(filtered_data)
+                    ranges_df = pd.concat([ranges_df, ranges_data], axis=1)
+            
+            
+        with st.expander("Raw 7am to 7am data"):
+            
+            # Calculate counts per 7am to 7am period all
+            
+
+            # Display the ranges DataFrame
+            st.dataframe(ranges_df)
+            # Check if refresh button is clicked
+        # Button to refresh data
+        if st.button("Refresh Data"):
+            # Check if GitHub credentials are defined
+            github_repo_s = st.session_state.get('github_repo')
+            github_access_key_s = st.session_state.get('github_access_key')
+            
+            if github_repo_s and github_access_key_s:
+                file_names_s = st.session_state.get('file_names', [])
+                st.write("Refreshing data...")
+                files.update(get_github_files(github_repo_s, github_access_key_s, file_names_s))
+                
+                # Record the timestamp of last refresh
+                timestamp_last_refresh = record_timestamp()
+                st.session_state.timestamp_last_refresh = timestamp_last_refresh
+                
+                # Display confirmation
+                st.write("Data refreshed successfully!")
+            
+            else:
+                st.error('GitHub repository name or access key is not defined. Please apply settings first.')
+    
+        # Display last refreshed timestamp
+        if 'timestamp_last_refresh' in st.session_state:
+            st.write(f"Last Refreshed: {st.session_state.timestamp_last_refresh}")
+
 
 if __name__ == "__main__":
     main()

@@ -4,3 +4,4 @@ pandas
 matplotlib
 plotly
 streamlit-option-menu
+streamlit-elements
