@@ -4,6 +4,8 @@ from github import Github
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+from streamlit_option_menu import option_menu
+
 
 # Function to connect to GitHub and retrieve files
 def get_github_files(repo_name, access_key, file_names):
@@ -125,12 +127,12 @@ def clip_to_last_1_hour(filtered_data):
 
 # Main function for Streamlit app
 def main():
-    st.title("Sensor Data Dashboard")
-    
-    # Settings page
-    settings = st.sidebar.selectbox("Select Page", ["Settings", "Main"])
-    
-    if settings == "Settings":
+    selected2 = option_menu(None, ["Settings", "Home"], 
+                           icons=['gear', 'house'], 
+                           menu_icon="cast", default_index=0, orientation="horizontal")
+   
+
+    if selected2 == "Settings":
         st.header("Settings")
         
         # Local settings
@@ -164,12 +166,39 @@ def main():
                 st.session_state.files = files
         
         # Counter settings
+        # Counter settings
         st.subheader("Counter Settings")
+        is_from_device = False
         if "files" in st.session_state and "preferences.json" in st.session_state.files:
             preferences = st.session_state.files["preferences.json"]
+            is_from_device = True
         else:
-            with open('preferences.json') as f:
-                preferences = json.load(f)
+            try:
+                with open('preferences.json') as f:
+                    preferences = json.load(f)
+            except FileNotFoundError:
+                st.warning("Please connect to GitHub to modify preferences.")
+                preferences = {
+                    "time_between_pushes_minutes": 60,
+                    "sensor_names": {
+                        "D3": "Sensor 1",
+                        "D4": "Sensor 2",
+                        "D5": "Sensor 3",
+                        "D6": "Sensor 4",
+                        "D7": "Sensor 5",
+                        "D8": "Sensor 6",
+                        "D9": "Sensor 7",
+                        "D41": "Sensor 8"
+                    },
+                    "character_lcd": True,
+                    "uln2003_stepper": False
+                }
+        
+        # Display settings and indicate if they are from device or GitHub
+        if is_from_device:
+            st.write("Local Counter Settings (From Device)")
+        else:
+            st.write("Counter Settings (From GitHub)")
         
         time_between_pushes = st.number_input("Time Between Pushes (minutes)", value=preferences['time_between_pushes_minutes'])
         sensor_names = preferences['sensor_names']
@@ -192,8 +221,15 @@ def main():
             if "files" in st.session_state:
                 st.session_state.files["preferences.json"] = preferences
             
+            # Update last updated time
+            st.session_state.last_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
             st.write("Counter settings updated.")
         
+        # Display last updated time for preferences.json
+        if "last_update_time" in st.session_state:
+            st.write(f"Last Updated: {st.session_state.last_update_time}")
+     
         # Restore settings
         st.subheader("Restore")
         download_settings = st.download_button("Download Settings File", data=json.dumps(preferences), file_name="settings.json")
@@ -209,7 +245,7 @@ def main():
             
             st.write("Settings restored.")
     
-    elif settings == "Main":
+    elif selected2 == "Home":
         st.title("Sensor Data Dashboard - Main Page")
         
         # Ensure files have been retrieved or uploaded

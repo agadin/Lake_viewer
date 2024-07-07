@@ -3,3 +3,4 @@ PyGithub
 pandas
 matplotlib
 plotly
+streamlit-option-menu
