@@ -89,6 +89,40 @@ def read_and_filter_data(file_content):
     
     return data
 
+def clip_to_last_24_hours(filtered_data):
+    if not filtered_data:
+        return []
+    
+    # Find the most recent timestamp
+    most_recent_time = filtered_data[-1][0]
+    
+    # Calculate the cutoff time (24 hours before the most recent time)
+    cutoff_time = most_recent_time - datetime.timedelta(hours=24)
+    
+    # Filter data to include only entries within the last 24 hours
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if ts >= cutoff_time]
+    
+    return clipped_data
+
+# Function to find the first value at the start of the 24-hour period
+
+
+def clip_to_last_1_hour(filtered_data):
+    if not filtered_data:
+        return []
+    
+    # Find the most recent timestamp
+    most_recent_time = filtered_data[-1][0]
+    
+    # Calculate the cutoff time (1 hour before the most recent time)
+    cutoff_time = most_recent_time - datetime.timedelta(hours=1)
+    
+    # Filter data to include only entries within the last 1 hour
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if ts >= cutoff_time]
+    
+    return clipped_data
+
+
 # Main function for Streamlit app
 def main():
     st.title("Sensor Data Dashboard")
@@ -185,26 +219,77 @@ def main():
         
         files = st.session_state.files
         
+        # Dropdown for selecting time frame
+        setting = st.selectbox("Select Time Frame", ['all', 'twenty four', 'one hour'])
+        
         # Create figure for Plotly chart
         fig = go.Figure()
         
-        # Parse data from each .txt file and add to Plotly figure
-        for file_name, file_content in files.items():
-            if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                filtered_data = read_and_filter_data(file_content)
-                if filtered_data:
-                    timestamps = [entry[0] for entry in filtered_data]
-                    counts = [entry[1] for entry in filtered_data]
-                    sensor_names = [entry[2] for entry in filtered_data]
+        # Parse data based on selected time frame
+        if setting == 'all':
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
                     
-                    # Add trace to Plotly figure with sensor name as label
-                    fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+                    if filtered_data:
+                        timestamps = [entry[0] for entry in filtered_data]
+                        counts = [entry[1] for entry in filtered_data]
+                        sensor_names = [entry[2] for entry in filtered_data]
+                        
+                        # Add trace to Plotly figure with sensor name as label
+                        fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
         
-        # Customize layout
-        fig.update_layout(title='Sensor Data over Time',
-                          xaxis_title='Time',
-                          yaxis_title='Count',
-                          hovermode='x unified')
+        elif setting == 'twenty four':
+            # Parse data from each .txt file and add to Plotly figure
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 24 hours
+                        filtered_data = clip_to_last_24_hours(filtered_data)
+                        first_count = filtered_data[0][1]
+                        if filtered_data:
+                            timestamps = [entry[0] for entry in filtered_data]
+                            counts = [entry[1]-first_count for entry in filtered_data]
+                            sensor_names = [entry[2] for entry in filtered_data]
+                            
+                            # Add trace to Plotly figure with sensor name as label
+                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time (Last 24 Hours)',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
+        
+        elif setting == 'one hour':
+            # Parse data from each .txt file and add to Plotly figure
+            for file_name, file_content in files.items():
+                if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+                    filtered_data = read_and_filter_data(file_content)
+                    if filtered_data:
+                        # Clip data to the last 1 hour
+                        filtered_data = clip_to_last_1_hour(filtered_data)
+                        first_count = filtered_data[0][1]
+                        if filtered_data:
+                            timestamps = [entry[0] for entry in filtered_data]
+                            counts = [entry[1]-first_count for entry in filtered_data]
+                            sensor_names = [entry[2] for entry in filtered_data]
+                            
+                            # Add trace to Plotly figure with sensor name as label
+                            fig.add_trace(go.Scatter(x=timestamps, y=counts, mode='lines', name=sensor_names[0]))
+            
+            # Customize layout
+            fig.update_layout(title='Sensor Data over Time (Last 1 Hour)',
+                              xaxis_title='Time',
+                              yaxis_title='Count',
+                              hovermode='x unified')
         
         # Render Plotly chart
         st.plotly_chart(fig)
