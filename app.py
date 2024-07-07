@@ -298,10 +298,10 @@ def main():
         
         # Counter settings
         st.subheader("Counter Settings")
-        is_from_device = False
+        is_from_device = True
         if "files" in st.session_state and "preferences.json" in st.session_state.files:
             preferences = st.session_state.files["preferences.json"]
-            is_from_device = True
+            is_from_device = False
         else:
             try:
                 with open('preferences.json') as f:
@@ -570,7 +570,30 @@ def main():
                 if filtered_data:
                     ranges_data = calculate_7am_to_7am_ranges(filtered_data)
                     ranges_df = pd.concat([ranges_df, ranges_data], axis=1)
-            
+        
+        # Display the ranges DataFrame using Plotly bar charts
+        st.subheader("Ranges of Counts per 7am to 7am Periods")
+        
+        # Create a figure for Plotly bar chart
+        fig = go.Figure()
+        
+        # Add bar traces for each sensor
+        for sensor_name in ranges_df.columns:
+            fig.add_trace(go.Bar(x=ranges_df.index, y=ranges_df[sensor_name], name=sensor_name))
+        
+        # Customize layout
+        fig.update_layout(
+            barmode='group',
+            xaxis_tickangle=-45,
+            xaxis=dict(title='7am to 7am Period'),
+            yaxis=dict(title='Range of Counts'),
+            legend=dict(title='Sensor'),
+            title='Ranges of Counts per 7am to 7am Periods'
+        )
+        
+        # Display the Plotly figure using st.plotly_chart
+        st.plotly_chart(fig)
+                    
             
         with st.expander("Raw 7am to 7am data"):
             
