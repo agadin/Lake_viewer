@@ -77,6 +77,8 @@ pip install -r requirements.txt
 ```
 
 ## Usage
+> [!NOTE]
+> This is instructions for a local install
 
 To start the app navigate to the folder that was unzipped in terminal and run:
 
@@ -84,18 +86,32 @@ To start the app navigate to the folder that was unzipped in terminal and run:
 streamlit run app.py
 ```
 
+Navigate to your web browser of choice and enter the address:
+```
+http://localhost:8501
+```
+
+The app should load into the settings page. The first step to using Lake View is to provide it with either the GitHub url that the rat wheel counter pushes to or to mannually upload .txt files. 
+
+Using Github information to retrieve the data will also allow for the remote editing of the `preferences.json` file on the device through the app. To use the Github method, the github `user/repository_name` (the easiest way to find this would be to go to the repository url and copy inclusively the first the first the content between the first two slashes after github.com/) and a personal accesss access token that has read and write privaleges to the repository (see [GitHub personal access token](https://docs.github.com/en/enterprise-server@3.9/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) for more information). After succefully connecting the appy will display a success message and the Home page and the Wiki pages will update.
+
+For the mannual upload, the .txt files have to be in the following format to be read correctly:
+```
+Date: Thursday 06/20/2024, Time: 00:00:00, Count: 1, Pin: D1
+```
+Note: for the mannual method all .txt files have to uploaded at once and the update `preferences.json` of the setting page will not work.
+
+
+
 ### Known Issues
-
-
-
-
-## Example Readmes
+* Logo does not render correctly on Wiki page :(
+* The restore settings file upload does not work correctly and will not restore all settings. 
 
 
 
 ## Maintainers
 
-[@agadin]([https://github.com/RichardLitt](https://github.com/agadin)).
+[@agadin]([https://github.com/RichardLitt](https://github.com/agadin))
 
 ## Contributing
 
@@ -103,7 +119,7 @@ Feel free to dive in! [Open an issue](https://github.com/agadin/Lake_viewer/issu
 
 
 ### Contributors
-
+[@agadin]([https://github.com/RichardLitt](https://github.com/agadin))
 
 
 ## License
