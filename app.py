@@ -30,11 +30,16 @@ def get_github_files(repo_name, access_key, file_names):
         for file_name in file_names:
             try:
                 file_content = repo.get_contents(file_name).decoded_content.decode()
+                if not file_content.strip():  # Check if the file is empty
+                    file_content = (
+                        "Date: 10/8/2024 Time: 00:00:33, Count: 0, Pin: D3, Sensor Name: Sensor 1\n"
+                        "Date: 10/8/2024 Time: 00:01:33, Count: 0, Pin: D3, Sensor Name: Sensor 1"
+                    )
                 files[file_name] = file_content
                 print(f"Successfully retrieved {file_name}")
             except Exception as e:
                 print(f"Error retrieving {file_name}: {e}")
-        
+
         # Retrieve preferences.json
         preferences_file = 'preferences.json'
         try:
@@ -44,7 +49,7 @@ def get_github_files(repo_name, access_key, file_names):
             print(f"Successfully retrieved {preferences_file}")
         except Exception as e:
             print(f"Error retrieving {preferences_file}: {e}")
-        
+
         return files
     except Exception as e:
         print(f"Error connecting to GitHub: {e}")
@@ -72,60 +77,48 @@ import plotly.graph_objects as go
 import datetime
 
 # Function to parse date and time from your data format
-def parse_date_time(line):
-    try:
-        # Example line: "Date: Thursday 06/20/2024, Time: 00:00:00, Count: 1, Pin: D1"
-        date_str = line.split(", ")[0].split(": ")[1]  # Extract "Thursday 06/20/2024"
-        time_str = line.split(", ")[1].split(": ")[1]  # Extract "00:00:00"
-        
-        datetime_str = f"{date_str} {time_str}"
-        return datetime.datetime.strptime(datetime_str, '%A %m/%d/%Y %H:%M:%S')
-    except IndexError:
-        return None
-    except ValueError:
-        return None
+import datetime
 
-# Function to read and filter data
-def read_and_filter_data(file_content):
+import datetime
 
-    lines = file_content.splitlines()
+import datetime
 
 
+def parse_sensor_data_from_raw(content):
     data = []
+    # Split the content into individual lines
+    lines = content.strip().split("\n")
+
     for line in lines:
-        timestamp = parse_date_time(line)
-        if timestamp is None:
-            continue
-        
-        try:
-            count = int(line.split(", ")[2].split(": ")[1])  # Extract "Count: 1"
-            sensor_name = line.split(", ")[3].split(": ")[1]  # Extract "Pin: D1" and get "D1"
-        except (IndexError, ValueError):
-            continue
-        
-        data.append((timestamp, count, sensor_name))
-    
-    if not data:
-        print("No valid data found in the file.")
-    
-    # Sort data by timestamp
-    data.sort(key=lambda x: x[0])
-    
+        # Parse the line
+        date_part = line.split("Date: ")[1].split(" Time:")[0].strip()
+        time_part = line.split("Time: ")[1].split(",")[0].strip()
+        count_part = int(line.split("Count: ")[1].split(",")[0].strip())
+        sensor_name_part = line.split("Sensor Name: ")[1].strip()
+
+        # Convert date and time to the desired format
+        timestamp = datetime.datetime.strptime(f"{date_part} {time_part}", "%m/%d/%Y %H:%M:%S")
+        formatted_timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Store the parsed information
+        data.append((formatted_timestamp, count_part, sensor_name_part))
+
     return data
+
 
 def clip_to_last_24_hours(filtered_data):
     if not filtered_data:
         return []
-    
+
     # Find the most recent timestamp
-    most_recent_time = filtered_data[-1][0]
-    
+    most_recent_time = datetime.datetime.strptime(filtered_data[-1][0], "%Y-%m-%d %H:%M:%S")
+
     # Calculate the cutoff time (24 hours before the most recent time)
     cutoff_time = most_recent_time - datetime.timedelta(hours=24)
-    
+
     # Filter data to include only entries within the last 24 hours
-    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if ts >= cutoff_time]
-    
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") >= cutoff_time]
+
     return clipped_data
 
 # Function to find the first value at the start of the 24-hour period
@@ -142,7 +135,7 @@ def clip_to_last_1_hour(filtered_data):
     cutoff_time = most_recent_time - datetime.timedelta(hours=1)
     
     # Filter data to include only entries within the last 1 hour
-    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if ts >= cutoff_time]
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") >= cutoff_time]
     
     return clipped_data
 
@@ -155,56 +148,66 @@ def clip_to_previous_24_hours(filtered_data):
     most_recent_time = filtered_data[-1][0]
     
     # Calculate the cutoff times
-    end_time = most_recent_time - datetime.timedelta(hours=24)
+    end_time = datetime.datetime.strptime(most_recent_time, "%Y-%m-%d %H:%M:%S") - datetime.timedelta(hours=24)
     start_time = end_time - datetime.timedelta(hours=24)
     
     # Filter data to include only entries within the 24-hour period before the last 24 hours
-    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if start_time <= ts < end_time]
-    
+    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if start_time <= datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") < end_time]
     return clipped_data
 
 # Function to clip data to the most recent 7am to 7am period
+import datetime
+
 def clip_to_7am_period(filtered_data):
     if not filtered_data:
         return []
-    
-    # Find the most recent timestamp
-    most_recent_time = filtered_data[-1][0]
-    
+
+    # Find the most recent timestamp and convert it to a datetime object
+    most_recent_time = datetime.datetime.strptime(filtered_data[-1][0], "%Y-%m-%d %H:%M:%S")
+
     # Find the most recent 7am before the most recent timestamp
     most_recent_7am = most_recent_time.replace(hour=7, minute=0, second=0, microsecond=0)
     if most_recent_time.hour < 7:
         most_recent_7am -= datetime.timedelta(days=1)
-    
+
     # Calculate the cutoff times for the last 7am to 7am period
     cutoff_time_start = most_recent_7am - datetime.timedelta(days=1)
     cutoff_time_end = most_recent_7am
-    
+
     # Filter data to include only entries within the last 7am to 7am period
-    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if cutoff_time_start <= ts < cutoff_time_end]
-    
+    clipped_data = [
+        (ts, count, sensor_name)
+        for (ts, count, sensor_name) in filtered_data
+        if cutoff_time_start <= datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") < cutoff_time_end
+    ]
     return clipped_data, cutoff_time_start, cutoff_time_end
 
 # Function to clip data to the 7am to 7am period before the most recent one
+import datetime
+
 def clip_to_previous_7am_period(filtered_data):
     if not filtered_data:
         return []
-    
-    # Find the most recent timestamp
-    most_recent_time = filtered_data[-1][0]
-    
+
+    # Find the most recent timestamp and convert it to a datetime object
+    most_recent_time = datetime.datetime.strptime(filtered_data[-1][0], "%Y-%m-%d %H:%M:%S")
+
     # Find the most recent 7am before the most recent timestamp
     most_recent_7am = most_recent_time.replace(hour=7, minute=0, second=0, microsecond=0)
     if most_recent_time.hour < 7:
         most_recent_7am -= datetime.timedelta(days=1)
-    
+
     # Calculate the cutoff times for the previous 7am to 7am period
     cutoff_time_start = most_recent_7am - datetime.timedelta(days=2)
     cutoff_time_end = most_recent_7am - datetime.timedelta(days=1)
-    
+
     # Filter data to include only entries within the previous 7am to 7am period
-    clipped_data = [(ts, count, sensor_name) for (ts, count, sensor_name) in filtered_data if cutoff_time_start <= ts < cutoff_time_end]
-    
+    clipped_data = [
+        (ts, count, sensor_name)
+        for (ts, count, sensor_name) in filtered_data
+        if cutoff_time_start <= datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") < cutoff_time_end
+    ]
+
     return clipped_data, cutoff_time_start, cutoff_time_end
 
 # Function to calculate counts per 7am to 7am period
@@ -294,6 +297,23 @@ def get_last_commit_date(repo_name, access_key, file_name):
 import zipfile
 from io import BytesIO
 
+import re
+
+def extract_sensor_names(files):
+    sensor_names = {}
+    sensor_name_pattern = re.compile(r"Sensor Name: ([\w\s]+)")
+
+    for file_name, file_content in files.items():
+        if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
+            lines = file_content.splitlines()
+            for line in lines:
+                match = sensor_name_pattern.search(line)
+                if match:
+                    sensor_name = match.group(1)
+                    sensor_names[file_name] = sensor_name
+                    break  # Assuming the sensor name is the same throughout the file
+
+    return sensor_names
 # Function to convert .txt files to BytesIO for zip archive
 def files_to_bytesio(files):
     zip_data = BytesIO()
@@ -453,20 +473,22 @@ def main():
             
             for i, (file_name, file_content) in enumerate(files.items(), start=1):
                 if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
+                    filtered_data = parse_sensor_data_from_raw(file_content)
                     if filtered_data:
                         # Clip data to the last 24 hours
                         filtered_data_24 = clip_to_last_24_hours(filtered_data)
+
                         if filtered_data_24:
                             first_count_24 = filtered_data_24[0][1]
                             timestamps_24 = [entry[0] for entry in filtered_data_24]
                             counts_24 = [entry[1] - first_count_24 for entry in filtered_data_24]
                             sensor_names_24 = [entry[2] for entry in filtered_data_24]
                             total_counts_24[f'total_counts_24_hall_{i}'] = max(counts_24)
-                            
-                            start_time_24 = timestamps_24[0].strftime('%Y-%m-%d %H:%M:%S')
-                            end_time_24 = timestamps_24[-1].strftime('%Y-%m-%d %H:%M:%S')
-                            sensor_names_24_out[i]=sensor_names_24[-1]
+
+                            # Convert the first timestamp to a datetime object before calling strftime
+                            start_time_24 = datetime.datetime.strptime(timestamps_24[0], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                            end_time_24 = datetime.datetime.strptime(timestamps_24[-1], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                            sensor_names_24_out[f'hall_effect_sensor_{i}.txt'] = sensor_names_24[-1]
                         # Clip data to the previous 24 hours
                         filtered_data_prev_24 = clip_to_previous_24_hours(filtered_data)
                         if filtered_data_prev_24:
@@ -477,11 +499,15 @@ def main():
                             total_counts_24_prev[f'total_counts_24_hall_{i}'] = 0
             
             # Display total counts and deltas in a 4-column by 2-row grid
+
+            sensor_names_24_out = extract_sensor_names(files)
+            # Display total counts and deltas in a 4-column by 2-row grid
             cols = st.columns(4)
             for i, (key, value) in enumerate(total_counts_24.items()):
                 col = cols[i % 4]
                 delta = value - total_counts_24_prev[key]
-                sensor_name = sensor_names_24_out[i+1]
+                file_name = f"hall_effect_sensor_{i+1}.txt"
+                sensor_name = sensor_names_24_out.get(file_name, "Unknown Sensor")
                 col.metric(f"Total Counts {sensor_name}", value, delta)
                 
             
@@ -497,10 +523,11 @@ def main():
             # Parse data from each .txt file and add to Plotly figure
             for i, (file_name, file_content) in enumerate(files.items(), start=1):
                 if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
+                    filtered_data = parse_sensor_data_from_raw(file_content)
                     if filtered_data:
                         # Clip data to the last 7am to 7am period
                         filtered_data_7am, cutoff_time_start_7am, cutoff_time_end_7am = clip_to_7am_period(filtered_data)
+                        print(filtered_data)
                         if filtered_data_7am:
                             first_count_7am = filtered_data_7am[0][1]
                             timestamps_7am = [entry[0] for entry in filtered_data_7am]
@@ -508,7 +535,7 @@ def main():
                             sensor_names_7am = [entry[2] for entry in filtered_data_7am]
                             total_counts_7am[f'total_counts_7am_hall_{i}'] = max(counts_7am)
                             date_ranges_7am[f'total_counts_7am_hall_{i}'] = f"{cutoff_time_start_7am.strftime('%Y-%m-%d %H:%M:%S')} to {cutoff_time_end_7am.strftime('%Y-%m-%d %H:%M:%S')}"
-                            
+                            print('hello')
                             sensor_names_7am_out[i]=sensor_names_7am[-1]
                         
                         # Clip data to the previous 7am to 7am period
@@ -521,8 +548,7 @@ def main():
                         else:
                             total_counts_7am_prev[f'total_counts_7am_hall_{i}'] = 0
 
-            
-            
+            sensor_names_7am_out=extract_sensor_names(files)
             cols = st.columns(4)
             for i, (key, value) in enumerate(total_counts_7am.items()):
                 col = cols[i % 4]
@@ -549,7 +575,7 @@ def main():
             if setting == 'All':
                 for file_name, file_content in files.items():
                     if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                        filtered_data = read_and_filter_data(file_content)
+                        filtered_data = parse_sensor_data_from_raw(file_content)
                         
                         if filtered_data:
                             timestamps = [entry[0] for entry in filtered_data]
@@ -569,7 +595,7 @@ def main():
                 # Parse data from each .txt file and add to Plotly figure
                 for file_name, file_content in files.items():
                     if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                        filtered_data = read_and_filter_data(file_content)
+                        filtered_data = parse_sensor_data_from_raw(file_content)
                         if filtered_data:
                             # Clip data to the last 24 hours
                             filtered_data = clip_to_last_24_hours(filtered_data)
@@ -592,7 +618,7 @@ def main():
                 # Parse data from each .txt file and add to Plotly figure
                 for file_name, file_content in files.items():
                     if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                        filtered_data = read_and_filter_data(file_content)
+                        filtered_data = parse_sensor_data_from_raw(file_content)
                         if filtered_data:
                             # Clip data to the last 1 hour
                             filtered_data = clip_to_last_1_hour(filtered_data)
@@ -632,7 +658,7 @@ def main():
             # Process each file for 7am to 7am periods
             for file_name, file_content in files.items():
                 if file_name.startswith("hall_effect_sensor_") and file_name.endswith(".txt"):
-                    filtered_data = read_and_filter_data(file_content)
+                    filtered_data = parse_sensor_data_from_raw(file_content)
                     if filtered_data:
                         ranges_data = calculate_7am_to_7am_ranges(filtered_data)
                         ranges_df = pd.concat([ranges_df, ranges_data], axis=1)
